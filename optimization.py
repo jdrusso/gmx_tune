@@ -20,9 +20,6 @@ def do_gromacs_run(
     slurm=False
 ):
     
-    mdrun_args = {}
-    slurm_args = {}
-    
     if slurm:
         runner = MDrunnerSLURM()
     else:
@@ -30,6 +27,16 @@ def do_gromacs_run(
 
     runner.run(mdrunargs=mdrun_args, **slurm_args)
 
+    # Get timing information
+    with open(f"{mdrun_args['deffnm']}.log", 'r') as logfile:
+        lines = logfile.readlines()
+        performance_line = [line for line in lines if 'Performance' in line]
+
+        ns_per_day = performance_line[0].split()[1]
+        ns_per_day = float(ns_per_day)
+
+    # Return ns/day
+    return ns_per_day
 
 # TODO: Sigopt loop
 
@@ -54,7 +61,9 @@ mdrun_args['ntomp'] = n_omp
 
 if __name__ == '__main__':
 
-   runner = gromacs.run.MDrunner()
-
+   # runner = gromacs.run.MDrunner()
    # runner = MDrunnerSLURM()
-   runner.run(mdrunargs=mdrun_args)
+   # runner.run(mdrunargs=mdrun_args)
+
+    ns_per_day = do_gromacs_run(mdrun_args=mdrun_args, slurm=False)
+    print("*** Completed run, with {ns_per_day:.2f} ns/day")
