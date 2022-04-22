@@ -1,0 +1,30 @@
+name: GMX Optimization
+type: offline
+parameters:
+  - name: ranks
+    type: int
+    bounds:
+      min: 1
+      max: 10
+  - name: pme_ranks
+    type: int
+    bounds:
+      min: 0
+      max: 5
+  - name: cpus_per_rank
+    type: int
+    bounds:
+      min: 1
+      max: 4
+  - name: ranks
+    type: int
+    grid: [1,2,3]
+metrics:
+  - name: ns/day
+    strategy: optimize
+    objective: maximize
+  - name: queuetime
+    strategy: optimize
+    objective: minimize
+parallel_bandwidth: 2
+budget: 30
