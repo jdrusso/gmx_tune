@@ -19,12 +19,15 @@ class MDrunnerSLURM(gromacs.run.MDrunner):
 
     def prehook(self, **kwargs):
         """Launch local smpd."""
+
         cmds = [['bash', '-c', 'module purge'], 
                 ['bash', '-c', 'module use /home/exacloud/software/modules/'], 
                 ['bash', '-c', 'module load openmpi/3.1.6'],
                 ['bash', '-c', 'module load gromacs/2020.2+cuda'] ]
+                
         for cmd in cmds:
             rc = subprocess.call(cmd)
+
         return rc
 
     def mpicommand(self, *args, **kwargs):
@@ -142,6 +145,11 @@ if __name__ == '__main__':
 
             if run.params['pme_ranks'] >= run.params['ranks']:
                 print("Too many PME ranks for the number of PP ranks.")
+                run.log_failure()
+                continue
+
+            if run.params['pme_ranks'] & run.params['n_gpus'] > 0:
+                print("PME ranks not divisible by GPUs.")
                 run.log_failure()
                 continue
 
