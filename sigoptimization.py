@@ -58,7 +58,7 @@ def do_gromacs_run(
         runner = gromacs.run.MDrunner()
 
     #print(f"Running with slurm args {slurm_args}")
-    print(f"Running: {runner.commandline(**slurm_args)}")
+    print(f"Running: {' '.join(runner.commandline(**slurm_args))}")
     runner.run(mdrunargs=mdrun_args, **slurm_args)
 
     
@@ -102,13 +102,20 @@ mdrun_args['ntomp'] = n_omp
 
 if __name__ == '__main__':
 
-
+    # TODO: Add some of the categorical parameters -- pinning, PME on CPU/GPU, etc
+    # TODO: Also could minimize resource wait time as another metric.... At least store it
+    #           I can access this with `sacct -j <jobid> -X -n --parsable2 -o Reserved`, I just
+    #           need a way to get job IDs.
+    # TODO: Store node info for a run
+    # TODO: Maybe I can use conditional parameters the way I wanted to use integer linear constraints
     experiment = sigopt.create_experiment(
         name='GMX parameter tune',
-        budget=10,
+        budget=30,
         parameters = [
             {"name":"cpus_per_task", "type":"int", "bounds":{"min":1, "max":4}},
-            {"name":"ranks", "type":"int", "bounds":{"min":1, "max":4}},
+            {"name":"ranks", "type":"int", "bounds":{"min":1, "max":10}},
+            {"name":"n_gpus", "type":"int", "grid":[1,2,3]},
+            #dict(name='npme', type='int', bounds={'min':1, 'max':4}),
         ],
         metrics = [{"name": "ns/day", "strategy": "optimize", "objective": "maximize"}],
         metadata = {'n_gpus':n_gpus, 'partition':partition},
@@ -120,8 +127,11 @@ if __name__ == '__main__':
             print(f"Launching run {run.id}!")
             print(run.params)
 
-            slurm_args['-n'] = run.params['ranks']
+            slurm_args['-n'] = run.params['ranks'] + run.params['npme']
             slurm_args['--cpus-per-task'] = run.params['cpus_per_task']
+            slurm_args['--gres'] = f"gpu:{run.params['n_gpus']}"
+            
+            #mdrun_args['npme'] = run.params['npme']
             mdrun_args['ntomp'] = run.params['cpus_per_task']
 
             ns_per_day = do_gromacs_run(mdrun_args=mdrun_args, slurm_args=slurm_args, slurm=True)
