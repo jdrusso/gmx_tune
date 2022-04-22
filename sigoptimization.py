@@ -1,6 +1,8 @@
 import sigopt
 import gromacs
 import subprocess
+from subprocess import PIPE
+from datetime import timedelta
 
 # Define SLURM runner
 import gromacs.run
@@ -112,12 +114,15 @@ if __name__ == '__main__':
         name='GMX parameter tune',
         budget=30,
         parameters = [
-            {"name":"cpus_per_task", "type":"int", "bounds":{"min":1, "max":4}},
-            {"name":"ranks", "type":"int", "bounds":{"min":1, "max":10}},
-            {"name":"n_gpus", "type":"int", "grid":[1,2,3]},
-            #dict(name='npme', type='int', bounds={'min':1, 'max':4}),
+            {"name":"ranks",         "type":"int", "bounds":{"min":1, "max":10}},
+            {"name":"pme_ranks",     "type":"int", "bounds":{"min":0, "max":5}},
+            {"name":"cpus_per_rank", "type":"int", "bounds":{"min":1, "max":4}},
+            {"name":"n_gpus",        "type":"int", "grid":[1,2,3]},
         ],
-        metrics = [{"name": "ns/day", "strategy": "optimize", "objective": "maximize"}],
+        metrics = [
+            {"name": "ns/day", "strategy": "optimize", "objective": "maximize"},
+            {"name": "queuetime", "strategy": "optimize", "objective": "minimize"},
+            ],
         metadata = {'n_gpus':n_gpus, 'partition':partition},
     )
 
@@ -127,14 +132,31 @@ if __name__ == '__main__':
             print(f"Launching run {run.id}!")
             print(run.params)
 
+            if (run.params['ranks'] + run.params['pme_ranks']) * run.params['cpus_per_rank'] > 44:
+                print("Too many requested resources for one node, this configuration is not available")
+                run.log_failure()
+                continue
+
+            jobname = f"gmx_opt-{run.id}"
+            slurm_args['--job-name'] = jobname
+
             slurm_args['-n'] = run.params['ranks'] + run.params['npme']
             slurm_args['--cpus-per-task'] = run.params['cpus_per_task']
             slurm_args['--gres'] = f"gpu:{run.params['n_gpus']}"
             
-            #mdrun_args['npme'] = run.params['npme']
+            mdrun_args['npme'] = run.params['pme_ranks']
             mdrun_args['ntomp'] = run.params['cpus_per_task']
 
             ns_per_day = do_gromacs_run(mdrun_args=mdrun_args, slurm_args=slurm_args, slurm=True)
             print(f"*** Completed run, with {ns_per_day:.2f} ns/day")
 
+            time_in_queue = subprocess.run(
+                ["sacct", "--name", jobname, "-X", "-o", "Reserved", "-n", "--parsable2"], 
+                stdout=PIPE).stdout.decode('utf-8').split()
+
+            hours, minutes, seconds = time_in_queue[-1].split(':')
+            queuetime = int(hours)*3600 + int(minutes)*60 + int(seconds)
+            print(f"*** Queue time was {queuetime} seconds")
+
             run.log_metric('ns/day', float(ns_per_day))
+            run.log_metric('queuetime', queuetime)
