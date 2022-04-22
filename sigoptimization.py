@@ -1,3 +1,5 @@
+# Note: you must load the gromacs module before running (even if the arch on the login node wouldn't let you actually execute it)
+
 import sigopt
 import gromacs
 import subprocess
@@ -61,9 +63,10 @@ def do_gromacs_run(
 
     #print(f"Running with slurm args {slurm_args}")
     print(f"Running: {' '.join(runner.commandline(**slurm_args))}")
-    runner.run(mdrunargs=mdrun_args, **slurm_args)
+    success = runner.run_check(mdrunargs=mdrun_args, **slurm_args)
 
-    
+    if success is False:
+        return None
 
     # Get timing information
     with open(f"{mdrun_args['deffnm']}.log", 'r') as logfile:
@@ -137,17 +140,28 @@ if __name__ == '__main__':
                 run.log_failure()
                 continue
 
+            if run.params['pme_ranks'] >= run.params['ranks']:
+                print("Too many PME ranks for the number of PP ranks.")
+                run.log_failure()
+                continue
+
             jobname = f"gmx_opt-{run.id}"
             slurm_args['--job-name'] = jobname
 
             slurm_args['-n'] = run.params['ranks'] + run.params['pme_ranks']
-            slurm_args['--cpus-per-task'] = run.params['cpus_per_task']
+            slurm_args['--cpus-per-task'] = run.params['cpus_per_rank']
             slurm_args['--gres'] = f"gpu:{run.params['n_gpus']}"
             
             mdrun_args['npme'] = run.params['pme_ranks']
-            mdrun_args['ntomp'] = run.params['cpus_per_task']
+            mdrun_args['ntomp'] = run.params['cpus_per_rank']
 
             ns_per_day = do_gromacs_run(mdrun_args=mdrun_args, slurm_args=slurm_args, slurm=True)
+
+            if ns_per_day is None:
+                print(f"Error in run {run.id}")
+                run.log_failure()
+                continue
+
             print(f"*** Completed run, with {ns_per_day:.2f} ns/day")
 
             time_in_queue = subprocess.run(
