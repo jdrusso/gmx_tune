@@ -140,7 +140,7 @@ if __name__ == '__main__':
             jobname = f"gmx_opt-{run.id}"
             slurm_args['--job-name'] = jobname
 
-            slurm_args['-n'] = run.params['ranks'] + run.params['npme']
+            slurm_args['-n'] = run.params['ranks'] + run.params['pme_ranks']
             slurm_args['--cpus-per-task'] = run.params['cpus_per_task']
             slurm_args['--gres'] = f"gpu:{run.params['n_gpus']}"
             
