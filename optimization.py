@@ -1,5 +1,6 @@
 import sigopt
 import gromacs
+import subprocess
 
 # Define SLURM runner
 import gromacs.run
@@ -12,20 +13,55 @@ class MDrunnerSLURM(gromacs.run.MDrunner):
     mdrun = "gmx_mpi mdrun"
     mpiexec = "/usr/bin/srun"
 
+    def prehook(self, **kwargs):
+        """Launch local smpd."""
+        cmds = [['bash', '-c', 'module purge'], 
+                ['bash', '-c', 'module use /home/exacloud/software/modules/'], 
+                ['bash', '-c', 'module load openmpi/3.1.6'],
+                ['bash', '-c', 'module load gromacs/2020.2+cuda'] ]
+        for cmd in cmds:
+            rc = subprocess.call(cmd)
+        return rc
+
+    def mpicommand(self, *args, **kwargs):
+        """Return a list of the mpi command portion of the commandline.
+
+        Only allows primitive mpi at the moment:
+           *mpiexec* -n *ncores* *mdrun* *mdrun-args*
+
+        (This is a primitive example for OpenMP. Override it for more
+        complicated cases.)
+        """
+        if self.mpiexec is None:
+            raise NotImplementedError("Override mpiexec to enable the simple OpenMP launcher")
+        # example implementation
+        #ncores = kwargs.pop('ncores', 8)
+        cmd = [self.mpiexec]
+        for key, val in kwargs.items():
+        
+            cmd.extend([key, str(val)])
+        return cmd
+        #return [self.mpiexec, '-n', str(ncores)]
+
 
 # Do a single gromacs run, with specified parameters
 def do_gromacs_run(
     mdrun_args,
     slurm_args={},
-    slurm=False
+    slurm=False,
 ):
-    
+ 
     if slurm:
+        # TODO: Load module files
         runner = MDrunnerSLURM()
     else:
         runner = gromacs.run.MDrunner()
 
+    #print(f"Running with slurm args {slurm_args}")
+    print(f"Running: {runner.commandline(**slurm_args)}")
     runner.run(mdrunargs=mdrun_args, **slurm_args)
+
+    
 
     # Get timing information
     with open(f"{mdrun_args['deffnm']}.log", 'r') as logfile:
@@ -44,19 +80,23 @@ def do_gromacs_run(
 ### Slurm Args
 
 # CPUS
-slurm_args = {'mpi':'pmi2'}
-n_ranks = 3
+slurm_args = {'--mpi':'pmi2', '--job-name': 'gmx test'}
+n_ranks = 4
+cpus_per_task = 2
 n_omp = 2
 
 # GPUS
 n_gpus = 1
 
-slurm_args['gres'] = f'gpu:{n_gpus}'
-slurm_args['n'] = n_ranks
+slurm_args['--gres'] = f'gpu:{n_gpus}'
+slurm_args['--partition'] = 'gpu'
+slurm_args['-n'] = n_ranks
+slurm_args['--cpus-per-task'] = cpus_per_task
 
 ### MDRun Args
 mdrun_args = {'v':'yes', 'deffnm':'step5_1'}
 mdrun_args['ntomp'] = n_omp
+#mdrun_args['nt'] = n_ranks
 
 
 if __name__ == '__main__':
@@ -65,5 +105,6 @@ if __name__ == '__main__':
    # runner = MDrunnerSLURM()
    # runner.run(mdrunargs=mdrun_args)
 
-    ns_per_day = do_gromacs_run(mdrun_args=mdrun_args, slurm=False)
-    print("*** Completed run, with {ns_per_day:.2f} ns/day")
+    print("Launching run!")
+    ns_per_day = do_gromacs_run(mdrun_args=mdrun_args, slurm_args=slurm_args, slurm=True)
+    print(f"*** Completed run, with {ns_per_day:.2f} ns/day")
