@@ -16,7 +16,7 @@ parameters:
     bounds:
       min: 1
       max: 4
-  - name: ranks
+  - name: n_gpus
     type: int
     grid: [1,2,3]
 metrics:
