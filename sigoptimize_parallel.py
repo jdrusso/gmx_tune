@@ -15,7 +15,7 @@ class MDrunnerSLURM(gromacs.run.MDrunner):
     """
 
     mdrun = "gmx_mpi mdrun"
-    mpiexec = "/usr/bin/srun"
+    mpiexec = "/usr/bin/salloc"
 
     def prehook(self, **kwargs):
         """Launch local smpd."""
@@ -44,6 +44,8 @@ class MDrunnerSLURM(gromacs.run.MDrunner):
         for key, val in kwargs.items():
         
             cmd.extend([key, str(val)])
+
+        cmd.extend(['srun', '--mpi', 'pmi2'])
         return cmd
         #return [self.mpiexec, '-n', str(ncores)]
 
@@ -54,7 +56,8 @@ def do_gromacs_run(
     slurm_args={},
     slurm=False,
 ):
- 
+
+    print("Initializing runner") 
     if slurm:
         # TODO: Load module files
         runner = MDrunnerSLURM()
@@ -86,7 +89,7 @@ def do_gromacs_run(
 partition='gpu'
 
 # CPUS
-slurm_args = {'--mpi':'pmi2', '--job-name': 'gmx test'}
+slurm_args = {'--job-name': 'gmx test', '--nodes':1}
 n_ranks = 4
 cpus_per_task = 2
 n_omp = 2
@@ -112,6 +115,9 @@ def do_run():
     print(f"Launching run!")
     print(params)
 
+    run_id = sigopt.get_run_id()
+
+    
     if (sigopt.params['ranks'] + sigopt.params['pme_ranks']) * sigopt.params['cpus_per_rank'] > 44:
         print("Too many requested resources for one node, this configuration is not available")
         sigopt.log_failure()
@@ -125,9 +131,9 @@ def do_run():
     if sigopt.params['pme_ranks'] & sigopt.params['n_gpus'] > 0:
         print("PME ranks not divisible by GPUs.")
         sigopt.log_failure()
-        continue
+        return
 
-    jobname = f"gmx_opt-{sigopt.id}"
+    jobname = f"gmx_opt-{run_id}"
     slurm_args['--job-name'] = jobname
 
     slurm_args['-n'] = sigopt.params['ranks'] + sigopt.params['pme_ranks']
@@ -146,10 +152,13 @@ def do_run():
 
     print(f"*** Completed run, with {ns_per_day:.2f} ns/day")
 
+    print(f"Trying to find runtime for job {jobname}")
+
     time_in_queue = subprocess.run(
         ["sacct", "--name", jobname, "-X", "-o", "Reserved", "-n", "--parsable2"], 
         stdout=PIPE).stdout.decode('utf-8').split()
 
+    
     hours, minutes, seconds = time_in_queue[-1].split(':')
     queuetime = int(hours)*3600 + int(minutes)*60 + int(seconds)
     print(f"*** Queue time was {queuetime} seconds")
